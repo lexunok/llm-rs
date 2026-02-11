@@ -1,26 +1,15 @@
-use anyhow::{Error as E, Result};
-
-use candle_transformers::models::phi3::Model as Phi3;
-use candle_transformers::generation::LogitsProcessor;
-use candle_transformers::models::mimi::candle::{Tensor, DType, Device, IndexOp};
-use tokenizers::Tokenizer;
-use std::io::Write;
 use crate::tokenizer::TokenOutputStream;
+use anyhow::{Error as E, Result};
+use candle_transformers::generation::LogitsProcessor;
+use candle_transformers::models::mimi::candle::{DType, Device, IndexOp, Tensor};
+use candle_transformers::models::phi3::Model as Phi3;
+use std::io::Write;
+use tokenizers::Tokenizer;
 
 const PROMPT_START: &str = "<|system|>
-You are a highly knowledgeable and concise software engineering assistant. Your task is to help a human answer technical interview questions in real time. 
-Guidelines:
-1. Provide clear, precise, and technically correct answers. Focus on practical solutions and common best practices.
-2. Keep answers short enough to be easily spoken aloud (1-3 sentences), unless a detailed explanation is explicitly requested.
-3. If a question requires code, generate small, readable code snippets in the requested programming language.
-4. Avoid unnecessary filler or long explanations unless asked.
-5. If a question is ambiguous, ask a clarifying question briefly before giving an answer.
-6. Always prioritize correctness, simplicity, and clarity.
-7. Speak as if coaching someone for an interview — confident, neutral, and professional.
-8. Answer only what is asked; do not provide unrelated information.
+You are a helpful Rust language programming assistant. Answer the user's question in 2-3 sentences.
 <|end|><|user|>";
 const PROMPT_END: &str = "<|end|><|assistant|>";
-
 
 pub struct TextGeneration {
     pub model: Phi3,

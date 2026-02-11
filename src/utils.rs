@@ -1,6 +1,6 @@
 use candle_core::Result;
 
-pub fn hub_load_safetensors(
+pub fn _hub_load_safetensors(
     repo: &hf_hub::api::sync::ApiRepo,
     json_file: &str,
 ) -> Result<Vec<std::path::PathBuf>> {
@@ -26,13 +26,14 @@ pub fn hub_load_safetensors(
     Ok(safetensors_files)
 }
 
-pub fn _hub_load_local_safetensors<P: AsRef<std::path::Path>>(
+pub fn hub_load_local_safetensors<P: AsRef<std::path::Path>>(
     path: P,
     json_file: &str,
 ) -> Result<Vec<std::path::PathBuf>> {
     let path = path.as_ref();
     let jsfile = std::fs::File::open(path.join(json_file))?;
-    let json: serde_json::Value = serde_json::from_reader(&jsfile).map_err(candle_core::Error::wrap)?;
+    let json: serde_json::Value =
+        serde_json::from_reader(&jsfile).map_err(candle_core::Error::wrap)?;
     let weight_map = match json.get("weight_map") {
         None => candle_core::bail!("no weight map in {json_file:?}"),
         Some(serde_json::Value::Object(map)) => map,

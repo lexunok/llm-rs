@@ -3,24 +3,14 @@ use anyhow::{Error as E, Result};
 use candle_nn::VarBuilder;
 use candle_transformers::models::mimi::candle::Device;
 use candle_transformers::models::phi3::{Config as Phi3Config, Model as Phi3};
-// use hf_hub::{Repo, RepoType, api::sync::Api};
 use tokenizers::Tokenizer;
 
 mod generation;
 mod tokenizer;
 mod utils;
 
-fn main() -> Result<()> {
+pub fn setup() -> Result<TextGeneration> {
     let device = Device::cuda_if_available(0)?;
-
-    // let api = Api::new()?;
-
-    // let model_id = "microsoft/Phi-4-mini-instruct".to_string();
-    // let revision = "main".to_string();
-
-    // let repo = api.repo(Repo::with_revision(model_id, RepoType::Model, revision));
-
-    // let tokenizer_filename = repo.get("tokenizer.json")?;
 
     let tokenizer_filename = std::path::PathBuf::from("model/tokenizer.json");
 
@@ -30,7 +20,6 @@ fn main() -> Result<()> {
 
     let dtype = device.bf16_default_to_f32();
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
-    // let config_filename = repo.get("config.json")?;
     let config_filename = std::path::PathBuf::from("model/config.json");
 
     let config = std::fs::read_to_string(config_filename)?;
@@ -38,16 +27,12 @@ fn main() -> Result<()> {
 
     let model = Phi3::new(&config, vb)?;
 
-    let mut pipeline = TextGeneration::new(
+    Ok(TextGeneration::new(
         model, tokenizer, 299792458, // seed
         None,      // temperature
         None,      // top_p
         1.1,       // repeat_penalty
         64,        // repeat_last_n
         &device, false,
-    );
-
-    pipeline.run(&"Что такое трейт объекты в расте", 500)?;
-
-    Ok(())
+    ))
 }

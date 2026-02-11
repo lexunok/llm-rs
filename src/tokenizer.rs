@@ -1,6 +1,5 @@
 use candle_core::Result;
 
-
 pub struct TokenOutputStream {
     tokenizer: tokenizers::Tokenizer,
     tokens: Vec<u32>,
