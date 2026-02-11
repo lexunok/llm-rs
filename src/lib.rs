@@ -5,7 +5,7 @@ use candle_transformers::models::smol::quantized_smollm3::QuantizedModelForCausa
 use tokenizers::Tokenizer;
 
 mod chat_template;
-mod generation;
+pub mod generation;
 mod tokenizer;
 mod utils;
 
