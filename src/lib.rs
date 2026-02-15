@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use crate::generation::TextGeneration;
 use anyhow::{Error as E, Result};
 use candle_transformers::models::mimi::candle::Device;
@@ -10,30 +13,37 @@ mod tokenizer;
 
 pub struct ModelArgs {
     pub model_path: String,
+    pub system_prompt: Option<String>,
     pub enable_thinking: Option<bool>,
+    pub interrupt_signal: Arc<AtomicBool>,
 }
 impl ModelArgs {
-    pub fn new(model_path: String, enable_thinking: Option<bool>) -> Self {
+    pub fn new(
+        model_path: String,
+        system_prompt: Option<String>,
+        enable_thinking: Option<bool>,
+        interrupt_signal: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             model_path,
+            system_prompt,
             enable_thinking,
+            interrupt_signal,
         }
     }
 }
 
 pub fn run() -> Result<(), E> {
     let prompt = "Rust is a great language";
-
-    let args = ModelArgs::new("model/SmolLM3-3B-128K-Q8_0.gguf".to_string(), None);
-    let mut generation_model = setup(args)?;
+    let interrupt_signal = Arc::new(AtomicBool::new(false));
+    let args = ModelArgs::new("model/llm.gguf".to_string(), None, None, interrupt_signal);
+    let mut generation_model = setup(args, &Device::cuda_if_available(0)?)?;
     generation_model.run_generation(prompt)?;
 
     Ok(())
 }
 
-pub fn setup(args: ModelArgs) -> Result<TextGeneration> {
-    let device = Device::cuda_if_available(0)?;
-
+pub fn setup(args: ModelArgs, device: &Device) -> Result<TextGeneration> {
     let tokenizer_filename = std::path::PathBuf::from("model/tokenizer.json");
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
@@ -49,6 +59,8 @@ pub fn setup(args: ModelArgs) -> Result<TextGeneration> {
         None,
         None,
         None,
+        args.system_prompt,
         args.enable_thinking,
+        args.interrupt_signal,
     ))
 }
