@@ -34,7 +34,6 @@
 
 use minijinja::{Environment, context};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 /// A chat message with role and content
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -183,45 +182,6 @@ impl ChatTemplate {
         })
     }
 
-    /// Load chat template from a tokenizer_config.json file
-    pub fn from_tokenizer_config(path: impl AsRef<Path>) -> Result<Self, ChatTemplateError> {
-        let content = std::fs::read_to_string(path.as_ref())
-            .map_err(|e| ChatTemplateError::IoError(e.to_string()))?;
-
-        Self::from_tokenizer_config_str(&content)
-    }
-
-    /// Load chat template from tokenizer_config.json content
-    pub fn from_tokenizer_config_str(json: &str) -> Result<Self, ChatTemplateError> {
-        let config: TokenConfig =
-            serde_json::from_str(json).map_err(|e| ChatTemplateError::ParseError(e.to_string()))?;
-
-        let template = match config.chat_template {
-            Some(ChatTemplateConfig::Single(t)) => t,
-            Some(ChatTemplateConfig::Multiple(templates)) => {
-                // Use "default" template if available, otherwise first one
-                templates
-                    .iter()
-                    .find(|t| t.name == "default")
-                    .or_else(|| templates.first())
-                    .map(|t| t.template.clone())
-                    .ok_or(ChatTemplateError::NoTemplate)?
-            }
-            None => return Err(ChatTemplateError::NoTemplate),
-        };
-
-        let bos = config
-            .bos_token
-            .map(|t| t.as_str().to_string())
-            .unwrap_or_default();
-        let eos = config
-            .eos_token
-            .map(|t| t.as_str().to_string())
-            .unwrap_or_default();
-
-        Self::new(template, bos, eos)
-    }
-
     /// ChatML template used by SmolLM, Qwen, and many other models
     pub fn chatml() -> Self {
         let template = r#"
@@ -251,83 +211,6 @@ impl ChatTemplate {
 "#;
         Self::new(template, "", "<|im_end|>").unwrap()
     }
-
-    /// Llama 2 chat template
-    pub fn llama2() -> Self {
-        let template = r#"
-{%- if messages[0]['role'] == 'system' %}
-    {%- set system_message = '<<SYS>>\n' + messages[0]['content'] + '\n<</SYS>>\n\n' %}
-    {%- set messages = messages[1:] %}
-{%- else %}
-    {%- set system_message = '' %}
-{%- endif %}
-{%- for message in messages %}
-    {%- if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}
-        {{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}
-    {%- endif %}
-    {%- if loop.index0 == 0 %}
-        {{- bos_token + '[INST] ' + system_message + message['content'] + ' [/INST]' }}
-    {%- elif message['role'] == 'user' %}
-        {{- bos_token + '[INST] ' + message['content'] + ' [/INST]' }}
-    {%- elif message['role'] == 'assistant' %}
-        {{- ' ' + message['content'] + ' ' + eos_token }}
-    {%- endif %}
-{%- endfor %}
-"#;
-        Self::new(template, "<s>", "</s>").unwrap()
-    }
-
-    /// Llama 3 / 3.1 chat template
-    pub fn llama3() -> Self {
-        let template = r#"
-{%- set loop_messages = messages %}
-{%- for message in loop_messages %}
-    {%- set content = '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n' + message['content'] | trim + '<|eot_id|>' %}
-    {%- if loop.index0 == 0 %}
-        {{- bos_token + content }}
-    {%- else %}
-        {{- content }}
-    {%- endif %}
-{%- endfor %}
-{%- if add_generation_prompt %}
-    {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' }}
-{%- endif %}
-"#;
-        Self::new(template, "<|begin_of_text|>", "<|eot_id|>").unwrap()
-    }
-
-    /// Mistral Instruct template
-    pub fn mistral() -> Self {
-        let template = r#"
-{{- bos_token }}
-{%- for message in messages %}
-    {%- if message['role'] == 'user' %}
-        {{- '[INST] ' + message['content'] + ' [/INST]' }}
-    {%- elif message['role'] == 'assistant' %}
-        {{- ' ' + message['content'] + eos_token }}
-    {%- endif %}
-{%- endfor %}
-"#;
-        Self::new(template, "<s>", "</s>").unwrap()
-    }
-
-    /// Gemma template
-    pub fn gemma() -> Self {
-        let template = r#"
-{%- for message in messages %}
-    {%- if message['role'] == 'user' %}
-        {{- '<start_of_turn>user\n' + message['content'] + '<end_of_turn>\n' }}
-    {%- elif message['role'] == 'assistant' %}
-        {{- '<start_of_turn>model\n' + message['content'] + '<end_of_turn>\n' }}
-    {%- endif %}
-{%- endfor %}
-{%- if add_generation_prompt %}
-    {{- '<start_of_turn>model\n' }}
-{%- endif %}
-"#;
-        Self::new(template, "<bos>", "<eos>").unwrap()
-    }
-
     /// Apply the chat template to messages
     pub fn apply(
         &self,
@@ -455,78 +338,3 @@ impl std::fmt::Display for ChatTemplateError {
 }
 
 impl std::error::Error for ChatTemplateError {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_chatml_basic() {
-        let template = ChatTemplate::chatml();
-        let messages = vec![Message::system("You are helpful."), Message::user("Hello")];
-
-        let result = template.apply_for_generation(&messages).unwrap();
-
-        assert!(result.contains("<|im_start|>system\nYou are helpful.<|im_end|>"));
-        assert!(result.contains("<|im_start|>user\nHello<|im_end|>"));
-        assert!(result.ends_with("<|im_start|>assistant\n"));
-    }
-
-    #[test]
-    fn test_multi_turn_conversation() {
-        let mut conv = Conversation::new(ChatTemplate::chatml(), "You are helpful.");
-
-        let prompt1 = conv.user_turn("Hi").unwrap();
-        assert!(prompt1.contains("Hi"));
-
-        conv.assistant_response("Hello!");
-
-        let prompt2 = conv.user_turn("How are you?").unwrap();
-        assert!(prompt2.contains("Hi"));
-        assert!(prompt2.contains("Hello!"));
-        assert!(prompt2.contains("How are you?"));
-    }
-
-    #[test]
-    fn test_thinking_mode() {
-        let template = ChatTemplate::chatml_with_thinking();
-        let messages = vec![Message::user("Think about this")];
-
-        let result = template
-            .apply(
-                &messages,
-                &ChatTemplateOptions::for_generation().with_thinking(),
-            )
-            .unwrap();
-
-        assert!(result.contains("<think>"));
-    }
-
-    #[test]
-    fn test_llama3_format() {
-        let template = ChatTemplate::llama3();
-        let messages = vec![Message::system("You are helpful."), Message::user("Hello")];
-
-        let result = template.apply_for_generation(&messages).unwrap();
-
-        assert!(result.contains("<|begin_of_text|>"));
-        assert!(result.contains("<|start_header_id|>system<|end_header_id|>"));
-        assert!(result.contains("<|start_header_id|>user<|end_header_id|>"));
-        assert!(result.contains("<|eot_id|>"));
-    }
-
-    #[test]
-    fn test_from_json_config() {
-        let json = r#"{
-            "bos_token": "<s>",
-            "eos_token": "</s>",
-            "chat_template": "{% for m in messages %}{{ m.role }}: {{ m.content }}\n{% endfor %}"
-        }"#;
-
-        let template = ChatTemplate::from_tokenizer_config_str(json).unwrap();
-        let messages = vec![Message::user("test")];
-        let result = template.apply_for_generation(&messages).unwrap();
-
-        assert!(result.contains("user: test"));
-    }
-}

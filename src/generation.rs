@@ -85,6 +85,7 @@ impl TextGeneration {
             print!("{rest}");
         }
 
+        self.model.clear_kv_cache();
         Ok(())
     }
     fn get_eos_token(&self) -> u32 {
